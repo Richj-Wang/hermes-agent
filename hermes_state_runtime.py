@@ -954,6 +954,13 @@ def apply_worker_receipt(db, *, epoch, execution_id, session_id, generation, seq
     ``execution.finish`` is the only operation that makes the execution terminal.
     """
     from hermes_state_worker_compression import worker_receipt_assignment
+    # Bookkeeping a worker still flushes after its admission has settled and retired it. These
+    # mutate counters/leases only — never the transcript — so accepting them late cannot resurrect
+    # a closed execution or duplicate a message; refusing them used to abort the whole turn.
+    _RETIRED_TAIL_OPERATIONS = frozenset({
+        'usage.main', 'usage.auxiliary',
+        'turn.acquire', 'turn.renew', 'turn.release', 'turn.cleanup',
+    })
     if type(sequence) is not int or sequence < 1 or not isinstance(operation, str) or operation not in handlers:
         raise RuntimeStoreError('invalid_params')
     encoded = _json(payload)
@@ -963,6 +970,21 @@ def apply_worker_receipt(db, *, epoch, execution_id, session_id, generation, seq
                                   payload={'operation': operation, 'payload': json.loads(encoded)})
     def write(conn):
         _epoch(conn, epoch)
+        # A worker can still be flushing its OWN tail (usage counters, turn-lease release) after
+        # the admission that owns it has already settled. Settlement retires the worker row and
+        # compacts its receipts, so the assignment check below would reject the tail — and because
+        # the caller treats every refusal as fatal, the whole turn aborted with a message blaming
+        # disk space / a locked database. Accept the tail of a retired execution instead: the
+        # worker already produced its answer, this write only tidies counters. Identity is what
+        # fences it — the row must be this exact execution, on this session and generation — so a
+        # recycled execution id cannot borrow a retired worker's lifetime.
+        if operation in _RETIRED_TAIL_OPERATIONS:
+            retired = conn.execute(
+                'SELECT status, session_id, generation FROM worker_executions WHERE execution_id=?',
+                (execution_id,)).fetchone()
+            if (retired is not None and retired['status'] == 'terminal'
+                    and retired['session_id'] == session_id and retired['generation'] == generation):
+                return {'value': None, 'retired': True}
         row = worker_receipt_assignment(conn, execution_id, session_id, generation, sequence, digest)
         if row['owner_epoch'] != epoch:
             raise RuntimeStoreError('stale_epoch')

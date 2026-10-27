@@ -314,10 +314,13 @@ class RuntimeSessionStore(RuntimeSessionCompressionMixin, RuntimeSessionLifecycl
 
     def _apply(self, operation, payload):
         with self.lock:
-            if self.failure:
-                raise WorkerPersistenceError(self.failure)
-            if self.journal['pending']:
-                raise WorkerPersistenceError('pending_receipt')
+            # A residual receipt from a previous attempt is replayed first, never treated as a
+            # terminal refusal: the old code raised `pending_receipt` here forever, so one
+            # unacknowledged write (a worker that lost its process mid-persist) permanently
+            # disabled persistence for the rest of the turn and surfaced as a bogus
+            # "disk full / database locked" message.
+            if self.journal['pending'] or self.failure:
+                self.retry_pending()
             entry = {'sequence': self.journal['next_sequence'], 'operation': operation, 'payload': payload}
             candidate = json.loads(json.dumps(self.journal))
             candidate['pending'].append(json.loads(json.dumps(entry, allow_nan=False)))

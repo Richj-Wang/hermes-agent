@@ -5,6 +5,7 @@ the owner on its parent's receipt stream (gateway/session_worker_child.py), neve
 """
 import asyncio
 import hmac
+import logging
 import os
 
 from gateway.session_admission import admission_fingerprint
@@ -12,6 +13,8 @@ from hermes_state_runtime import (
     RuntimeStoreError, _secret_digest, adopt_worker_execution,
     mutate_worker_execution, register_worker_execution,
 )
+
+logger = logging.getLogger(__name__)
 
 _SCOPE = {'profile_id', 'session_id', 'execution_id', 'generation', 'pid', 'birth', 'secret'}
 
@@ -28,13 +31,23 @@ def _claim(connection, ref, params):
     if (type(pid) is not int or pid <= 0 or pid == os.getpid()
             or type(birth) not in (int, float) or not isinstance(secret, str) or not 16 <= len(secret) <= 256):
         raise RuntimeStoreError('invalid_params')
+    # A dead worker is NOT an authorization failure: the identity fields (pid/birth/secret)
+    # are still verified below against the durable adoption digest, so a worker that lost its
+    # process mid-persist can still replay its own committed receipt. Reporting a dead worker
+    # as `permission_denied` mislabelled it as "another process holds the database" and sent
+    # operators hunting disk space and file locks that were never the problem.
     try:
         process = psutil.Process(pid)
         from hermes_cli.process_identity import process_birth
-        if (process_birth(process) != birth or not process.is_running()
-                or process.status() == psutil.STATUS_ZOMBIE
-                or process.username() != psutil.Process().username()):
+        if process_birth(process) != birth or not process.is_running() or process.status() == psutil.STATUS_ZOMBIE:
+            raise psutil.NoSuchProcess(pid)
+        if process.username() != psutil.Process().username():
             raise RuntimeStoreError('permission_denied')
+    except psutil.NoSuchProcess:
+        from contextlib import suppress
+        with suppress(Exception):
+            logger.warning('kanban worker pid %s (%s) is no longer live; verifying by adoption digest only',
+                           pid, params.get('execution_id'))
     except psutil.Error as exc:
         raise RuntimeStoreError('worker_not_live') from exc
     # Reuse the durable adoption digest as the producer claim. Changing any
