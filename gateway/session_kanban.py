@@ -53,6 +53,13 @@ def build_kanban_policy(connection, params, config):
     for name, value in (('model', task.model_override), ('provider', task.provider_override), ('reasoning', task.reasoning_effort)):
         if value:
             params_policy[name] = value
+    # Per-card iteration budget: freeze it as the session's agent.max_turns through build_policy,
+    # which is what the worker actually runs on (policy.max_turns, see run_turn_runner). Not an env
+    # var — the inherited HERMES_MAX_ITERATIONS bridge is one process-wide slot holding the
+    # DISPATCHING profile's value. resolve_turn_limit spells 0 as "unlimited", so an
+    # absent/NULL card value must simply be omitted.
+    if task.iteration_budget:
+        params_policy['max_turns'] = int(task.iteration_budget)
     private = {}
     policy = build_policy(params_policy, config, private_secrets=private)
     if policy.model is None:

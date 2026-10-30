@@ -887,6 +887,12 @@ _LATER_TASK_COLUMNS = (
     ("block_recurrences", "block_recurrences INTEGER NOT NULL DEFAULT 0"),
     # Spawn-time start fingerprint of worker_pid (PID-reuse guard; NULL = legacy row).
     ("worker_started_at", "worker_started_at INTEGER"),
+    # Per-task iteration budget for the worker's agent loop (max_turns). NULL =
+    # the worker's profile ``agent.max_turns``. Needed because the
+    # HERMES_MAX_ITERATIONS env bridge is one process-wide slot: a gateway
+    # dispatching several profiles' workers would otherwise hand every one of
+    # them the launch profile's budget.
+    ("iteration_budget", "iteration_budget INTEGER"),
 )
 
 _NOTIFY_SUB_COLUMNS = (

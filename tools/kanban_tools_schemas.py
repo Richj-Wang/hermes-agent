@@ -502,6 +502,15 @@ KANBAN_CREATE_SCHEMA = _schema(
                 "is blocked for review. Ignored unless goal_mode is "
                 "true. Defaults to the goal-engine default (20)."
         )),
+        "iteration_budget": _prop("integer", (
+                "Per-card iteration budget for the worker's agent loop "
+                "(its agent max_turns). Overrides the assignee profile's "
+                "agent.max_turns for this card only — and also overrides "
+                "the dispatching profile's budget that the worker would "
+                "otherwise inherit. Use a higher value for heavy cards "
+                "that need many tool rounds (long document builds, "
+                "multi-file refactors). Omit to use the profile's setting."
+        )),
         "model": _prop("string", (
                 "Pin the dispatched worker to this model instead of "
                 "the assignee profile's configured model. Use the "

@@ -213,6 +213,11 @@ _SPECS = [
                   "review). Best for open-ended cards one shot rarely finishes."),
         _arg("--goal-max-turns", type=int, metavar="N", dest="goal_max_turns",
              help="Turn budget for --goal workers (default 20). Ignored without --goal."),
+        _arg("--iteration-budget", type=int, metavar="N", dest="iteration_budget",
+             help="Per-card iteration budget for the worker's agent loop (agent max_turns). "
+                  "Overrides the assignee profile's agent.max_turns — and the profile's "
+                  "budget the dispatcher would otherwise inherit — for this card only. "
+                  "Use it for heavy cards (long doc builds, many tool rounds)."),
         _arg("--initial-status", choices=sorted(kb.VALID_INITIAL_STATUSES), default="running",
              help="Initial card status. Use 'blocked' for cards "
                   "that require immediate human ops (R3 gate) "
